@@ -19,31 +19,32 @@ sys.path.insert(0, '/home/athome/catkin_ws/src/mimi_voice_control/src')
 from voice_common_pkg.srv import WhatDidYouSay 
 from happymimi_voice_msgs.srv import YesNo
 from recognition_action_server import Count,Find,Localize
+tts_srv = rospy.ServiceProxy('/tts', StrTrg)
 
 class Order(smach.State):
     def __init__(self):
         smach.State.__init__(self,outcomes=['yes_sir'],
                             input_keys = ['g'])
         self.head_pub = rospy.Publisher('/servo/head', Float64, queue_size = 1)
-        #self.guest_name  = "null"
         self.bc = BaseControl()
-    def yesNo(self):
-        result = self.yes_no_srv().result
-        return result
+#    def yesNo(self):
+#        result = self.yes_no_srv().result
+#        return result
     def execute(self, userdata):
-        rospy.loginfo('Would you like me to call?')
-        self.YesNoRes = self.yes_no_srv().result
-        #if self.YesNoRes = bool
-        if self.yesNo():
-            speak("Cought Yes")
-            print("Cought yes")
-            self.bc.rotateAngle(180,0.2)
+        print('Would you like me to call a person?')
+        tts_srv("Would you like me to call a person?")
+        #self.Y_N_Res = self.yes_no_srv().result
+        if self.yes_no_srv().result == True:
+            tts_srv("Got Yes")
+            print("Got yes")
+            self.bc.rotateAngle(180,0.4)
+            rospy.sleep(5.0)
             return 'yes_sir'
         else:
-            print("Cought no")
-            speak("do nothing")     
+            tts_srv("Got no")
+            print("Got no, My work completed. Good bye, take care.")
             pass
-        
+
 class EnterRoom(smach.State):
     def __init__(self):
         smach.State.__init__(self,
@@ -51,19 +52,15 @@ class EnterRoom(smach.State):
         self.enter_srv = rospy.ServiceProxy('enter_room_server', EnterRoom)
     def execute(self, userdata):
         rospy.loginfo('start enterTheRoom(S)')
-        speak('Start enter the room')
+        tts_srv("Start enter the room")
         self.enter_srv(distance=1.0,velocity=0.2)
-        speak('Howdy, Whats up.')
+        tts_srv("Howdy? What's up! Body")
         return 'finish_enter'
 
 class SearchPerson(smach.State):
     def __init__(self):
         smach.State.__init__(self,outcomes=['found_lying','found_standing',
-                                            'not_found1','not_found2'])
-                            #input_keys=['human_state_in'],
-                            #output_keys=['human_state_out'])
-        self.navi_srv = rospy.serviceproxy('navi_location_server',Navigation)
-        #self.multiple_localize_srv = rospy.ServiceProxy('/recognition/multiple_localize',MultipleLocalize)
+                                            'not_found_one','not_found_two'])
         self.localize_srv = rospy.ServiceProxy('/recognition/localize',RecognitionLocalize)
         self.find_srv = rospy.ServiceProxy('/recognition/find', RecognitionFind)
         self.head_pub = rospy.Publisher('/servo/head', Float64, queue_size = 1)
@@ -72,66 +69,86 @@ class SearchPerson(smach.State):
         self.bc = BaseControl()
         navi_counter = 0
     def execute(self, userdata):
-        rospy.loginfo("start searching a person")
+        rospy.loginfo("start SearchPerson")
         navi_counter =+ 1
         self.head_pub.publish(-15)
-        self.bc.rotateAngle(45, 0.2)
+        self.bc.rotateAngle(45, 0.3)
         rospy.sleep(5.0)
         self.find_result = self.find_srv(RecognitionFindRequest(target_name='person')).result
+        rospy.sleep(5.0)
         self.head_pub.publish(0)
-        #　人検知したか、しないかで条件分岐
         if self.find_result == True:
-            target_name = "stand_person"
-            #　三次元位置を推定してぇんだなあ
+            print("found person")
+            target_name = "person"
+            #　三次元位置を推定したいんだなあ
             self.localize_srv(target_name="person")
-            #　Z軸の値を受け取りてぇんだなあ
-            self.localize_srv(RecognitionLocalizeReqest(num = [2]))
+            #　Z軸の値を受け取りたいんだなあ
+            localize_result = self.localize_srv(RecognitionLocalizeReqest)
+            z_value = localize_result[3]
             #　Z軸の位置が基準より高い、低いで条件分岐
             if z_value >= constant_value:
-                #target_name = 'standing_person'
-                #speak("Come to The operator")
+                target_name = 'standing_person'
+                tts_srv("come to the operator")
                 return 'found_standing'
             else :
-                #target_name = 'lying_person'
+                target_name = 'lying_person'
                 return 'found_lying'
         elif self.find_result == False:
-            rospy.loginfo('find no person')
-            speak("search clear!")
+            print("find no person")
+            tts_srv("find no person")
             if navi_counter == 1:
-                speak("start navigation")
+                tts_srv("start navigation")
                 self.navi_srv('Shelf')
-                self.bc.rotateAngle(90,0.2)
+                self.bc.rotateAngle(90,0.3)
                 rospy.sleep(0.5)
                 rospy.loginfo('finish moving to another place')
-                return 'not_found_1'
+                return 'not_found_one'
             elif navi_counter > 1:
-                return 'not_found2'
+                return 'not_found_two'
 
-class TalkAndAlert(smach.State):
-    def __init__(self):
-        smach.State.__init__(self,outcomes = ['to_observation'])
-        self.yesno_srv = rospy.ServiceProxy('/yes_no', YesNo)
-    def execute(self, userdata):
-        speak('Are you sleeping?')
-        
 class Observation(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['moved','not_moved'])
         self.head_pub = rospy.Publisher('/servo/head', Float64, queue_size = 1)
+
     def execute(self, userdata):
-        rospy.loginfo('Executing state: RETURN')
+        rospy.loginfo('Executing state: Observation')
         self.head_pub.publish(-15)
+
+
+class TalkAndAlert(smach.State):
+    def __init__(self):
+        smach.State.__init__(self,outcomes = ['alert_finish','to_exit'])
+        self.yesno_srv = rospy.ServiceProxy('/yes_no', YesNo)
+    def execute(self, userdata):
+        for i in range(2):
+            tts_srv("Are you awake?")
+            self.y_n_result = self.yes_no_srv().result
+            if self.y_n_result == True:
+                print("Got yes")
+                tts_srv("Got Yes. Please come to the operator")
+                break
+            elif self.y_n_result == False:
+                print("This guy is awake")
+                tts_srv("Come to the operator")
+                break
+        else:
+            tts_srv("This guy has no sounds.")
+            tts_srv("Hellooo gooood mooorrrniiing")
+            return 'alert_finish'
+        return 'to_exit'
 
 class Exit(smach.State):
     def __init__(self):
-        smach.State.__init__(self,outcomes = ['all_finish']
-        self.navi_srv = rospy.ServiceProxy('navi_location_server',Navigation)
+        smach.State.__init__(self,outcomes = ['all_finish'])
+        self.navi_srv = rospy.ServiceProxy('navi_location_server', Navigation)
     def execute(self, userdata):
         print("Start going to operator")
-        speak('Go to the exit')
-        self.navi_srv("next_to_soor")
+        tts_srv("let's go to the operator")
+        self.navi_srv("next_to_door")
+
         print("finish confirming of human life safety")
-        speak("finish confirming")
+        tts_srv("finish confirming")
         return 'all_finish'
 
 if __name__ == '__main__':
@@ -148,13 +165,14 @@ if __name__ == '__main__':
                 'SearchPerson',
                 SearchPerson(),
                 transitions = {'found_lying':'Observation',
-                               'found_standing':'Navigation'
-                               'not_found1':'SearchPerson',
-                               'not_found2':'Exit'})
+                               'found_standing':'Exit',
+                               'not_found_one':'SearchPerson',
+                               'not_found_two':'Exit'})
         smach.StateMachine.add(
                 'TalkAndAlert',
                 TalkAndAlert(),
-                transitions = {'alert_finish':'Observation'})
+                transitions = {'alert_finish':'Observation',
+                               'to_exit':'Exit'})
         smach.StateMachine.add(
                 'Observation',
                 Observation(),

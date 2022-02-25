@@ -1,2 +1,7 @@
-    <launch>
-    </launch>
+<launch>
+    <node pkg="happymimi_bringup" name="minimal" type="minimal.launch" />
+    <node pkg="happymimi_bringup" name="sensor" type="sensor.launch" />
+    <node pkg="recognition_processing" name="recognition_processing" type="recognition_processing.launch" />
+    <node pkg="happymimi_bringup" name="three_dimensional_data_processing" type="three_dimensional_data_processing.launch" />
+
+</launch>
